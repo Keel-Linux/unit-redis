@@ -1,0 +1,46 @@
+# Tests of the Redis component (decision 0006 point 4):
+#   tests:   the conf script, the first boot hook and its library, under bats
+#            and kcov on hosted runners, with the threshold committed here
+#   package: a change that reaches an image needs a changelog entry, and the
+#            entry is what bumps the version file a layer manifest records
+#
+# There is no appliance job. A component is not bootable: its acceptance test
+# is the layer that consumes it, and keel-redis runs it (build-and-boot on the
+# self-hosted runner).
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # Threshold 0 is the bootstrap case of test-shell.yml: there is no
+    # tests/coverage.sh on this branch yet, so the job passes with a notice
+    # and the check exists, which is what lets main be protected from the
+    # first day. It is raised to the measured number when the tests land, and
+    # only ever raised (decision 0006). This job produces the check
+    # "tests / coverage", the required status on main; the job id is part of
+    # that name, so renaming it silently detaches the protection rule.
+    uses: keel-linux/.github/.github/workflows/test-shell.yml@main
+    with:
+      threshold: 0
+  package:
+    # Only on a pull request: require-changelog reads the base commit from
+    # github.event.pull_request.base.sha, which is empty on a push.
+    #
+    # This component has no debian/changelog. What identifies it is the
+    # version file, which bt-layer records in the layer manifest as
+    # redis@<version>, and tests/unit.bats fails when the version and the
+    # newest changelog entry disagree. So a change that ships has to bump
+    # ./changelog, and bumping it bumps the pin. This job produces the check
+    # "package / changelog".
+    if: github.event_name == 'pull_request'
+    uses: keel-linux/.github/.github/workflows/require-changelog.yml@main
+    with:
+      changelog: changelog
+      exempt: '^(tests/|docs/|\.github/|README|COVERAGE\.md|LICENSE|\.gitignore)'
