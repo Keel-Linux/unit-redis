@@ -1,0 +1,128 @@
+#!/bin/sh -e
+# Build time configuration of the Redis component, run by fab inside the
+# chroot after the overlay is applied (share/product.mk, "run the unit
+# configuration scripts"). It runs once per image: a layer built on a parent
+# that already carries this unit does not run it again, which is what
+# bt-layer's units field in the layer manifest is for.
+#
+# Three things happen here and nothing else.
+#
+#   1. Debian's /etc/redis/redis.conf is given one appended line: an include
+#      of the fragment directory this component's overlay ships. Redis keeps
+#      the last value it read for a directive, and Redis's own manual says
+#      to put an include last when the included file is meant to override,
+#      so the fragments win and the packaged conffile keeps all 110 kB of
+#      its comments and every other default untouched. One appended line is
+#      also the smallest conffile change an upgrade can be asked to merge.
+#
+#   2. The fragments the overlay must have delivered are checked to be
+#      there, because an include of an empty directory is not an error in
+#      Redis: a glob that matches nothing is read as nothing, and a silently
+#      unconfigured server would start and answer on Debian's defaults.
+#
+#   3. The server is started against that very file and asked what it is
+#      doing. Asserting the configuration is not asserting the behaviour
+#      (docs/traps.md): the PostgreSQL appliance shipped listening on IPv4
+#      only with a listen_addresses that read correctly, and its own build
+#      had checked the file it wrote. So this asks the running server on
+#      [::1] and on 127.0.0.1 in turn, and asks it for a key it must refuse.
+#
+# The check leaves nothing in the image. --dir and --logfile point at a
+# scratch directory that is removed afterwards, and --save '' means the
+# server has no snapshot points at all, so no dump.rdb is ever written.
+#
+# The paths and the port below are overridable defaults, so the script can
+# be run against scratch directories and measured (decision 0004). Nothing
+# sets them in a build.
+
+REDIS_CONF="${REDIS_CONF:-/etc/redis/redis.conf}"
+REDIS_CONF_D="${REDIS_CONF_D:-/etc/redis/redis.conf.d}"
+REDIS_CHECK_DIR="${REDIS_CHECK_DIR:-/tmp/keel-redis-conf-check}"
+REDIS_CHECK_HOSTS="${REDIS_CHECK_HOSTS:-::1 127.0.0.1}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_TRIES="${REDIS_TRIES:-30}"
+
+fatal() {
+    echo "FATAL [unit-redis conf]: $*" >&2
+    exit 1
+}
+
+# 1. The fragments. They come from the overlay, which fab applied before
+#    this script ran, so their absence means the overlay did not arrive.
+[ -d "$REDIS_CONF_D" ] || fatal "$REDIS_CONF_D is not in the tree: the component overlay did not arrive"
+for fragment in 10-keel-bind.conf 20-keel-acl.conf; do
+    [ -f "$REDIS_CONF_D/$fragment" ] \
+        || fatal "$REDIS_CONF_D/$fragment is missing: the component overlay is incomplete"
+done
+[ -f "$REDIS_CONF" ] || fatal "$REDIS_CONF is not in the tree: redis-server is not installed"
+
+# 2. The include, appended once and last. grep -F because the line holds a
+#    glob, and -x so a commented example of the same text does not count.
+include_line="include $REDIS_CONF_D/*.conf"
+if ! grep -qxF "$include_line" "$REDIS_CONF"; then
+    cat >> "$REDIS_CONF" <<APPEND
+
+# Keel: the fragments of $REDIS_CONF_D, read here, at the end of
+# the file, because Redis keeps the last value it read for a directive.
+$include_line
+APPEND
+fi
+[ "$(tail -n 1 "$REDIS_CONF")" = "$include_line" ] \
+    || fatal "$REDIS_CONF does not end with '$include_line', so a fragment would not win"
+
+# 3. The running server. It is started from the real configuration file, so
+#    what is proved below is what an appliance built on this component gets.
+mkdir -p "$REDIS_CHECK_DIR"
+redis-server "$REDIS_CONF" \
+    --daemonize yes \
+    --dir "$REDIS_CHECK_DIR" \
+    --logfile "$REDIS_CHECK_DIR/redis.log" \
+    --pidfile "$REDIS_CHECK_DIR/redis.pid" \
+    --save '' \
+    || fatal "redis-server refused $REDIS_CONF"
+
+stop_server() {
+    # SHUTDOWN is not a command the default user may run, which is the whole
+    # point of 20-keel-acl.conf, so the check stops the server the way init
+    # would: the pid it was told to write.
+    if [ -s "$REDIS_CHECK_DIR/redis.pid" ]; then
+        kill "$(cat "$REDIS_CHECK_DIR/redis.pid")" 2>/dev/null || true
+    fi
+    rm -rf "$REDIS_CHECK_DIR"
+}
+trap stop_server EXIT INT TERM
+
+attempt=1
+while [ "$attempt" -le "$REDIS_TRIES" ]; do
+    if redis-cli -h ::1 -p "$REDIS_PORT" INFO server 2>/dev/null | grep -q '^redis_version:'; then
+        break
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+done
+
+# Both loopback families answer, each asked at its own literal address. This
+# is the assertion the bind fragment exists for, and it is made against the
+# server rather than against the line that was written.
+#
+# INFO is the question because it is the only one the default user may ask
+# after 20-keel-acl.conf, and because it is exactly what `keel inspect` runs
+# to read this machine's database.server.role.
+for host in $REDIS_CHECK_HOSTS; do
+    redis-cli -h "$host" -p "$REDIS_PORT" INFO server 2>/dev/null \
+        | grep -q "^tcp_port:$REDIS_PORT\$" \
+        || fatal "no Redis answered INFO on [$host]:$REDIS_PORT after $REDIS_TRIES tries"
+done
+
+# And the other half of 20-keel-acl.conf: a client with no secret is refused
+# every key. The answer is read rather than the exit code, because redis-cli
+# exits 0 when the server replies with an error.
+refusal=$(redis-cli -h ::1 -p "$REDIS_PORT" GET keel:no-such-key 2>&1 || true)
+case "$refusal" in
+    NOPERM*)
+        echo "[unit-redis conf] Redis answers INFO on [::1]:$REDIS_PORT and on"
+        echo "[unit-redis conf] [127.0.0.1]:$REDIS_PORT, and refuses every key"
+        echo "[unit-redis conf] to a client with no secret"
+        ;;
+    *) fatal "an unauthenticated client was answered '$refusal' for GET, not NOPERM" ;;
+esac

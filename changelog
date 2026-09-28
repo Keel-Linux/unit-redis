@@ -1,0 +1,62 @@
+unit-redis-1.0.0 (1) keel; urgency=low
+
+  * The Redis component, as a fab unit (decision 0010): a plan, an overlay
+    and a conf script, consumed through unit.d by every recipe that carries
+    a Redis server. Redis is the third of the three engines decision 0013
+    settled on, and the first one whose component is written rather than
+    extracted: turnkeylinux/common has no conf/redis, no overlays/redis and
+    no plans/turnkey/redis, so there was nothing in the shared tree to take
+    out. The upstream appliance configured the server from its own recipe.
+
+  * The server listens on the loopback of both families, and both are
+    literal addresses: "bind ::1 127.0.0.1". Debian ships
+    "bind 127.0.0.1 -::1", where the dash makes ::1 optional, so a server
+    that cannot bind it starts anyway and answers one family. A name is
+    never used: Debian maps ::1 to ip6-localhost and never to localhost,
+    which is how the PostgreSQL appliance shipped listening on IPv4 only.
+
+  * The declared secret is the password of an ACL user, not requirepass.
+    Redis has no database account, and the vocabulary work of decision 0013
+    leaves both open. This component chooses the ACL user for two reasons.
+    requirepass is the default user's password, so it also locks INFO, which
+    is the one thing `keel inspect` reads to report database.server.role,
+    and inspect never reads a secret to get past a refusal: an appliance
+    with requirepass set cannot say that it is standalone, and the role is
+    the seam the replication modes of decision 0013 are built on. And
+    requirepass lives in /etc/redis/redis.conf, which the package ships
+    root:root 0644, so the upstream appliance wrote the Redis password into
+    a world readable file and shipped turnkey-redis-pw to print it back out;
+    an ACL rule takes the SHA-256 of a password instead, and this component
+    writes that into a file it installs root:redis 0640.
+
+  * So the default account is left able to run one command, INFO, with no
+    key and no channel, and the administrative account is published "off",
+    which is this component's version of the unusable account keel-mariadb
+    publishes: a layer is published once and reused, so a password chosen at
+    build time would be the same password everywhere and a random one would
+    make the layer irreproducible. firstboot.d/35redispass turns the account
+    on from secrets.db_password of the instance description, restarts the
+    server, proves the password by connecting, and proves the other half by
+    asking for a key with no credentials and requiring NOPERM.
+
+  * Configuration is added as fragments under /etc/redis/redis.conf.d, with
+    one appended line in the packaged conffile including them at the end of
+    the file, where Redis's own manual says an include belongs when it is
+    meant to override. The 110 kB conffile keeps every other default and
+    every comment, and an upgrade has one line to merge.
+
+  * The conf script asserts the behaviour and not the file it wrote
+    (docs/traps.md): it starts the server from the real configuration, asks
+    INFO on [::1] and on 127.0.0.1 in turn, and asks for a key with no
+    credentials and requires the refusal. It writes no snapshot and leaves
+    no directory behind.
+
+  * No conf-vars. fab lets a unit name the build time variables its conf
+    script reads, and this one reads none: the password comes from the
+    instance description at first boot, not from the build.
+
+  * No Webmin module. Debian 13 packages webmin-mysql and webmin-postgresql
+    and no equivalent for Redis, so an appliance built on this component
+    gets the panel core carries and no Redis page in it.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Sun, 27 Sep 2026 22:00:00 +0000

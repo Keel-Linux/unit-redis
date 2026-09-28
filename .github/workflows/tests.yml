@@ -19,16 +19,15 @@ permissions:
 
 jobs:
   tests:
-    # Threshold 0 is the bootstrap case of test-shell.yml: there is no
-    # tests/coverage.sh on this branch yet, so the job passes with a notice
-    # and the check exists, which is what lets main be protected from the
-    # first day. It is raised to the measured number when the tests land, and
-    # only ever raised (decision 0006). This job produces the check
+    # COVERAGE.md: the conf script at 100 percent (36/36), the first boot
+    # hook at 100 (31/31) and its library at 100 (56/56), 65 bats tests. The
+    # threshold is the measured number and is only ever raised (decision
+    # 0006). This job produces the check
     # "tests / coverage", the required status on main; the job id is part of
     # that name, so renaming it silently detaches the protection rule.
     uses: keel-linux/.github/.github/workflows/test-shell.yml@main
     with:
-      threshold: 0
+      threshold: 100
   package:
     # Only on a pull request: require-changelog reads the base commit from
     # github.event.pull_request.base.sha, which is empty on a push.
