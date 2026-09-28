@@ -1,0 +1,119 @@
+#!/bin/bash -e
+# Give the Redis administrative account the password the instance
+# description declared, and prove it reached the server.
+#
+# secrets.db_password renders to DB_PASS (SECRET_VARS, the same table in
+# keel/spec/constants.py and in libinithooks/declarative.py of inithooks),
+# and DB_PASS is the variable every database hook of this project reads:
+# common's overlays/pgsql firstboot.d/35pgsqlpass, keel-mariadb's
+# firstboot.d/35mysqlpass, and this one. The vocabulary is shared; what each
+# engine does with it is not.
+#
+# What it means on Redis. There is no database account to set a password
+# on: the secret is either requirepass, which is the built in default
+# user's password, or an ACL user with a password of its own. This is an
+# ACL user, for the two reasons 20-keel-acl.conf of the overlay sets out:
+# requirepass would also lock INFO, which is the one thing `keel inspect`
+# reads to report this machine's role, and requirepass lives in a file the
+# package ships world readable, while an ACL rule takes the SHA-256 of the
+# password instead of the password.
+#
+# So this hook writes one rule into 50-keel-secret.conf, turning the
+# account 20-keel-acl.conf published as "off" into an account with that
+# digest, restarts the server and then connects as a client to say whether
+# it worked. It also asks for a key with no credentials at all and requires
+# a refusal, because "the declared secret reaches the server" and "no
+# secret reaches no data" are the same claim read from both ends.
+#
+# Decisions live in lib/redis.sh; this file is the part that touches the
+# system, and bin/redispass.py is the only dialog.
+
+INITHOOKS_DEFAULT="${INITHOOKS_DEFAULT:-/etc/default/inithooks}"
+# shellcheck source=/etc/default/inithooks
+source "$INITHOOKS_DEFAULT"
+# shellcheck source=../lib/redis.sh
+source "$INITHOOKS_PATH/lib/redis.sh"
+
+fatal() { echo "fatal [35redispass]: $*" >&2; exit 1; }
+
+if [[ -e "$INITHOOKS_CONF" ]]; then
+    # shellcheck source=/dev/null
+    source "$INITHOOKS_CONF"
+fi
+
+user=$(redis_admin_user "${APP_DB_USER-}") \
+    || fatal "'${APP_DB_USER-}' is not an account name this component will create"
+
+mapfile -t missing < <(redis_missing_values "${DB_PASS-}")
+if [[ ${#missing[@]} -gt 0 ]]; then
+    [[ -t 0 ]] || fatal "no ${missing[*]} in $INITHOOKS_CONF and no terminal to" \
+        "ask on: declare secrets.db_password in the instance description"
+    # The answer is collected first and read afterwards, rather than read
+    # from a process substitution: a dialog that fails is then a failure
+    # here instead of an empty loop nobody notices.
+    answered=$("$INITHOOKS_PATH/bin/redispass.py" "${missing[@]}") \
+        || fatal "the dialog for ${missing[*]} failed"
+    while IFS='=' read -r key value; do
+        [[ -n "$key" ]] && declare "$key=$value"
+    done <<< "$answered"
+    [[ -n "${DB_PASS-}" ]] || fatal "no password given"
+fi
+
+hash=$(redis_password_hash "$DB_PASS") \
+    || fatal "cannot hash the declared password"
+
+# Written through a temporary file in the same directory and moved into
+# place, so a reader never sees a rule with half a digest in it, and given
+# its mode before it is moved, so it is never readable while it is being
+# written.
+fragment="$REDIS_CONF_D/$REDIS_SECRET_FRAGMENT"
+install -d -m 0755 "$REDIS_CONF_D"
+staged=$(mktemp "$REDIS_CONF_D/.$REDIS_SECRET_FRAGMENT.XXXXXX") \
+    || fatal "cannot write in $REDIS_CONF_D"
+trap 'rm -f "$staged"' EXIT
+redis_acl_fragment "$user" "$hash" > "$staged" \
+    || fatal "cannot build the ACL rule for '$user'"
+chmod "$REDIS_SECRET_MODE" "$staged"
+chown "$REDIS_SECRET_OWNER" "$staged" \
+    || fatal "cannot give $fragment to $REDIS_SECRET_OWNER"
+mv "$staged" "$fragment"
+
+# The rule is read at start, not at runtime, so the server is restarted
+# rather than told. restart and not reload: Redis has no reload that
+# re-reads its configuration file.
+systemctl restart "$REDIS_SERVICE.service"
+
+# The readiness probe asks INFO and not PING, because PING is not a command
+# the default account may run once 20-keel-acl.conf is in force and a
+# refusal read as readiness would be an accident rather than a check. What
+# is being waited for is a server that accepts a connection at all.
+redis_wait_ready "redis-cli -h $REDIS_VERIFY_HOST -p $REDIS_PORT INFO server" \
+    "$REDIS_WAIT_TRIES" \
+    || fatal "$REDIS_SERVICE did not answer on [$REDIS_VERIFY_HOST]:$REDIS_PORT" \
+        "after $REDIS_WAIT_TRIES tries"
+
+# The point of this hook is that a declared password reaches the server, so
+# it says whether it did rather than leaving that to be discovered. The
+# password goes to the client in the environment, never on a command line,
+# and the answer is read rather than the exit code, because redis-cli exits
+# 0 when the server replies with an error.
+mapfile -t verify < <(redis_verify_argv "$user" "$REDIS_VERIFY_HOST" "$REDIS_PORT") \
+    || fatal "cannot build the client arguments for '$user'"
+answer=$(REDISCLI_AUTH="$DB_PASS" redis-cli "${verify[@]}" 2>&1) \
+    || fatal "redis-cli could not reach [$REDIS_VERIFY_HOST]:$REDIS_PORT"
+redis_probe_verdict "$answer" \
+    || fatal "'$user' was answered '$answer' on [$REDIS_VERIFY_HOST]:$REDIS_PORT," \
+        "not $REDIS_PROBE_ANSWER: the declared password did not reach the server"
+
+# And the other end of the same claim: with no credentials, no key.
+mapfile -t denied < <(redis_denied_argv "$REDIS_VERIFY_HOST" "$REDIS_PORT") \
+    || fatal "cannot build the unauthenticated client arguments"
+refusal=$(redis-cli "${denied[@]}" 2>&1) \
+    || fatal "redis-cli could not reach [$REDIS_VERIFY_HOST]:$REDIS_PORT"
+redis_denied_verdict "$refusal" \
+    || fatal "a client with no secret was answered '$refusal' for a key," \
+        "not NOPERM: this server hands its data to anyone who can reach it"
+
+echo "Redis account '$user' set from DB_PASS $(redis_masked "$DB_PASS")," \
+     "verified on [$REDIS_VERIFY_HOST]:$REDIS_PORT; a client with no secret" \
+     "is refused every key"

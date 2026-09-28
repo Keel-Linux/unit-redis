@@ -1,0 +1,23 @@
+/* The Redis component, resolved together with the recipe's own plan
+   (share/product.mk, root.spec).
+
+   Nothing was extracted from the shared tree here, because there is nothing
+   to extract: turnkeylinux/common has no conf/redis, no overlays/redis and
+   no plans/turnkey/redis. The upstream appliance named redis-server and
+   redis-tools in its own plan/main and configured the server from its own
+   recipe, so this component is new code written to the rules the project
+   arrived at with the other two engines.
+
+   redis-server is Redis 8.0 as Debian 13 ships it, and it depends on
+   redis-tools at exactly its own version, so redis-cli is on any machine
+   that carries this component whether or not a recipe asks for it. The
+   client is named again by keel-redis, the way keel-mariadb names
+   mariadb-client, because a recipe that talks to its own database should
+   say so rather than rely on somebody else's dependency.
+
+   There is no Webmin module. Debian 13 packages webmin-mysql and
+   webmin-postgresql and no equivalent for Redis, so an appliance built on
+   this component gets the panel core carries and no Redis page in it.
+   Saying that here is cheaper than a reader looking for the line. */
+
+redis-server
