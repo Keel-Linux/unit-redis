@@ -27,9 +27,22 @@
 #      had checked the file it wrote. So this asks the running server on
 #      [::1] and on 127.0.0.1 in turn, and asks it for a key it must refuse.
 #
-# The check leaves nothing in the image. --dir and --logfile point at a
-# scratch directory that is removed afterwards, and --save '' means the
-# server has no snapshot points at all, so no dump.rdb is ever written.
+# The check leaves nothing in the image, and that took two goes. --dir and
+# --logfile point at a scratch directory that is removed afterwards, and
+# --save '' means the server has no snapshot points at all, so no dump.rdb
+# is ever written. What --logfile does not prevent is the packaged log file
+# being created: Redis opens every value its logfile setting is ever given,
+# and the packaged configuration gives one before the command line replaces
+# it. The check runs as root, so that opening leaves
+# /var/log/redis/redis-server.log owned by root in a directory the redis
+# user owns, and the service then cannot start on the machine at all:
+#
+#     redis-server[524]: *** FATAL CONFIG FILE ERROR (Redis 8.0.2) ***
+#     redis-server[524]: Can't open the log file: Permission denied
+#
+# Measured on the booted appliance of the first build that got that far.
+# The package ships no such file; redis creates it at its first start, as
+# its own user. So the check takes an empty one away again.
 #
 # The paths and the port below are overridable defaults, so the script can
 # be run against scratch directories and measured (decision 0004). Nothing
@@ -100,6 +113,10 @@ fi
 
 # 3. The running server. It is started from the real configuration file, so
 #    what is proved below is what an appliance built on this component gets.
+#
+#    The packaged log file is read out of that configuration first, so that
+#    stop_server can take it away again: see the note at the top.
+packaged_log=$(sed -n 's/^logfile[[:space:]][[:space:]]*//p' "$REDIS_CONF" | tail -1)
 mkdir -p "$REDIS_CHECK_DIR"
 redis-server "$REDIS_CONF" \
     --daemonize yes \
@@ -117,6 +134,14 @@ stop_server() {
         kill "$(cat "$REDIS_CHECK_DIR/redis.pid")" 2>/dev/null || true
     fi
     rm -rf "$REDIS_CHECK_DIR"
+    # And the packaged log file, if running the server here created it and
+    # nothing was written to it. Empty, so nothing is lost; owned by root
+    # in a directory the redis user owns, so leaving it is a service that
+    # cannot start. Whoever created it, an empty log file in an image is
+    # worth nothing: redis makes its own at the first boot.
+    if [ -n "$packaged_log" ] && [ -f "$packaged_log" ] && [ ! -s "$packaged_log" ]; then
+        rm -f "$packaged_log"
+    fi
 }
 trap stop_server EXIT INT TERM
 

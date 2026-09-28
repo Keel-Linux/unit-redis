@@ -18,10 +18,11 @@
 # package ships world readable, while an ACL rule takes the SHA-256 of the
 # password instead of the password.
 #
-# So this hook writes one rule into 50-keel-secret.conf, turning the
-# account 20-keel-acl.conf published as "off" into an account with that
+# So this hook declares the account in 50-keel-secret.conf, with that
 # digest, restarts the server and then connects as a client to say whether
-# it worked. It also asks for a key with no credentials at all and requires
+# it worked. It is the only place the account is declared: Redis refuses a
+# user declared twice across configuration files, so the component's build
+# time fragment names none. It also asks for a key with no credentials at all and requires
 # a refusal, because "the declared secret reaches the server" and "no
 # secret reaches no data" are the same claim read from both ends.
 #
