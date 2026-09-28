@@ -99,7 +99,7 @@ write_conf() {
     write_conf
     run "$HOOK"
     [ "$status" -eq 0 ]
-    ! grep -rq "$DECLARED_PASS" "$REDIS_CONF_D"
+    run ! grep -rq "$DECLARED_PASS" "$REDIS_CONF_D"
 }
 
 @test "the password never reaches a command line either" {
@@ -108,7 +108,7 @@ write_conf() {
     [ "$status" -eq 0 ]
     # It is in the environment of the recorded call and in no argument.
     grep -q "REDISCLI_AUTH=$DECLARED_PASS" "$CALLS"
-    ! grep -E "^redis-cli .*$DECLARED_PASS.* REDISCLI_AUTH" "$CALLS"
+    run ! grep -E "^redis-cli .*$DECLARED_PASS.* REDISCLI_AUTH" "$CALLS"
 }
 
 @test "the fragment is not readable by everybody" {

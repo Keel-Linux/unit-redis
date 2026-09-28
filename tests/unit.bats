@@ -9,6 +9,8 @@
 # one variable per line and fab refuses anything that is not a variable
 # name; the version is a single token the layer manifest can carry.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     unit="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 }
@@ -28,7 +30,7 @@ setup() {
     # reads none, and a dead interface is not carried (the same reasoning
     # unit-mariadb records for MYSQL_PASS).
     [ ! -e "$unit/conf-vars" ]
-    ! grep -qE '\$\{?(REDIS_PASS|APP_PASS|DB_PASS)' "$unit/conf"
+    run ! grep -qE '\$\{?(REDIS_PASS|APP_PASS|DB_PASS)' "$unit/conf"
 }
 
 @test "the version is one line a layer manifest can carry" {
@@ -74,6 +76,6 @@ setup() {
 @test "the component writes no password anywhere in the tree it ships" {
     # The one property the whole design rests on: what lands on the machine
     # is a digest. A requirepass line anywhere here would undo it.
-    ! grep -rqE '^[[:space:]]*requirepass' "$unit/overlay"
-    ! grep -rq 'masterauth' "$unit/overlay"
+    run ! grep -rqE '^[[:space:]]*requirepass' "$unit/overlay"
+    run ! grep -rq 'masterauth' "$unit/overlay"
 }
