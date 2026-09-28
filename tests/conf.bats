@@ -43,9 +43,14 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$pidfile" ]; then sleep 60 & echo $! > "$pidfile"; echo "started-pid $!" >> "$CALLS"; fi
 exit 0'
+    # The stub answers the way a real server does, which here means CRLF:
+    # every line of an INFO reply ends "\r\n" and redis-cli prints the
+    # reply as it came. The first build of this component failed because
+    # the check was anchored with a dollar and the stub of the day was not
+    # faithful about it, so this is the shape every INFO stub below has.
     stub redis-cli 'echo "redis-cli $*" >> "$CALLS"
 case " $* " in
-  *" INFO server "*|*" INFO server") printf "redis_version:8.0.2\ntcp_port:6379\n" ;;
+  *" INFO server "*|*" INFO server") printf "# Server\r\nredis_version:8.0.2\r\ntcp_port:6379\r\n" ;;
   *" GET "*) echo "NOPERM User default has no permissions to run the '"'"'get'"'"' command" ;;
 esac
 exit 0'
@@ -134,20 +139,57 @@ run_conf() {
     export REDIS_TRIES=2
     run_conf
     [ "$status" -eq 1 ]
-    [[ "$output" == *"no Redis answered INFO on [::1]:6379 after 2 tries"* ]]
+    [[ "$output" == *"no Redis reported tcp_port:6379 on [::1]:6379"* ]]
+    [[ "$output" == *"after 2 tries on [::1]"* ]]
 }
 
 @test "a server on one family only fails, which is the trap this exists for" {
     stub redis-cli 'echo "redis-cli $*" >> "$CALLS"
 case " $* " in
-  *" -h ::1 "*" INFO server"*) printf "redis_version:8.0.2\ntcp_port:6379\n" ;;
+  *" -h ::1 "*" INFO server"*) printf "# Server\r\ntcp_port:6379\r\n" ;;
   *" -h 127.0.0.1 "*) exit 1 ;;
 esac
 exit 0'
     export REDIS_TRIES=1
     run_conf
     [ "$status" -eq 1 ]
-    [[ "$output" == *"no Redis answered INFO on [127.0.0.1]:6379"* ]]
+    [[ "$output" == *"no Redis reported tcp_port:6379 on [127.0.0.1]:6379"* ]]
+}
+
+@test "an INFO reply in CRLF is read, which a dollar anchor would not have" {
+    # The defect the first build of this component died on. redis-cli
+    # prints the reply as it came and Redis speaks CRLF, so the line is
+    # "tcp_port:6379\r"; a check anchored with a dollar never matched it,
+    # and the message said no Redis answered while the server was up and
+    # listening on both families. Measured in the chroot of that build with
+    # od -c. The stub above is CRLF for the same reason, so every test in
+    # this file covers it; this one says so by name.
+    run bash -c 'printf "# Server\r\ntcp_port:6379\r\n" | grep -q "^tcp_port:6379$"'
+    [ "$status" -ne 0 ]
+    run bash -c 'printf "# Server\r\ntcp_port:6379\r\n" | tr -d "\r" | grep -qx "tcp_port:6379"'
+    [ "$status" -eq 0 ]
+    run_conf
+    [ "$status" -eq 0 ]
+}
+
+@test "a failure carries the server's own log, which the check then removes" {
+    stub redis-server 'echo "redis-server $*" >> "$CALLS"
+pidfile=""; logfile=""
+while [ $# -gt 0 ]; do
+    if [ "$1" = --pidfile ]; then pidfile=$2; fi
+    if [ "$1" = --logfile ]; then logfile=$2; fi
+    shift
+done
+[ -n "$logfile" ] && echo "1:M Ready to accept connections tcp" > "$logfile"
+if [ -n "$pidfile" ]; then sleep 60 & echo $! > "$pidfile"; echo "started-pid $!" >> "$CALLS"; fi
+exit 0'
+    stub redis-cli 'exit 1'
+    export REDIS_TRIES=1
+    run_conf
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"the last lines of the server's own log"* ]]
+    [[ "$output" == *"Ready to accept connections tcp"* ]]
+    [ ! -e "$REDIS_CHECK_DIR" ]
 }
 
 @test "redis-server refusing the file fails the build" {
@@ -160,7 +202,7 @@ exit 0'
 @test "a server that hands a key to a client with no secret fails the build" {
     stub redis-cli 'echo "redis-cli $*" >> "$CALLS"
 case " $* " in
-  *" INFO server"*) printf "redis_version:8.0.2\ntcp_port:6379\n" ;;
+  *" INFO server"*) printf "# Server\r\ntcp_port:6379\r\n" ;;
   *" GET "*) echo "(nil)" ;;
 esac
 exit 0'

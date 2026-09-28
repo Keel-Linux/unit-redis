@@ -44,7 +44,35 @@ REDIS_TRIES="${REDIS_TRIES:-30}"
 
 fatal() {
     echo "FATAL [unit-redis conf]: $*" >&2
+    # The server's own log, when there is one, because the check below
+    # removes the directory it is in and a build that failed for want of a
+    # log is a build nobody can diagnose. The first build of this component
+    # failed exactly that way.
+    if [ -s "$REDIS_CHECK_DIR/redis.log" ]; then
+        echo "FATAL [unit-redis conf]: the last lines of the server's own log:" >&2
+        tail -n 20 "$REDIS_CHECK_DIR/redis.log" >&2
+    fi
     exit 1
+}
+
+# redis_port_line HOST: the tcp_port line the server at HOST reports, with
+# the carriage returns taken out, and nothing when it reports none.
+#
+# The tr is the whole point of this function. Redis speaks CRLF: every line
+# of an INFO reply ends "\r\n", and redis-cli prints the reply as it came,
+# so "tcp_port:6379" is really "tcp_port:6379\r" and a grep anchored with a
+# dollar never matches it. The first build of this component failed there,
+# with a server that was up and listening on both families and a check that
+# said no Redis answered. Measured in the chroot of that build:
+#
+#     redis-cli INFO server | grep tcp_port | od -c
+#     t c p _ p o r t : 6 3 7 9 \r \n
+#
+# Anything that reads an INFO reply has to do this, or match a prefix and
+# never a whole line.
+redis_port_line() {
+    redis-cli -h "$1" -p "$REDIS_PORT" INFO server 2>/dev/null \
+        | tr -d '\r' | grep -x "tcp_port:$REDIS_PORT"
 }
 
 # 1. The fragments. They come from the overlay, which fab applied before
@@ -94,9 +122,7 @@ trap stop_server EXIT INT TERM
 
 attempt=1
 while [ "$attempt" -le "$REDIS_TRIES" ]; do
-    if redis-cli -h ::1 -p "$REDIS_PORT" INFO server 2>/dev/null | grep -q '^redis_version:'; then
-        break
-    fi
+    redis_port_line ::1 > /dev/null && break
     attempt=$((attempt + 1))
     sleep 1
 done
@@ -109,9 +135,9 @@ done
 # after 20-keel-acl.conf, and because it is exactly what `keel inspect` runs
 # to read this machine's database.server.role.
 for host in $REDIS_CHECK_HOSTS; do
-    redis-cli -h "$host" -p "$REDIS_PORT" INFO server 2>/dev/null \
-        | grep -q "^tcp_port:$REDIS_PORT\$" \
-        || fatal "no Redis answered INFO on [$host]:$REDIS_PORT after $REDIS_TRIES tries"
+    redis_port_line "$host" > /dev/null \
+        || fatal "no Redis reported tcp_port:$REDIS_PORT on [$host]:$REDIS_PORT," \
+            "after $REDIS_TRIES tries on [::1]"
 done
 
 # And the other half of 20-keel-acl.conf: a client with no secret is refused

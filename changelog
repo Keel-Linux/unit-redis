@@ -1,3 +1,32 @@
+unit-redis-1.0.1 (1) keel; urgency=low
+
+  * Read an INFO reply the way Redis writes it. Redis speaks CRLF: every
+    line of an INFO reply ends "\r\n" and redis-cli prints the reply as it
+    came, so "tcp_port:6379" is really "tcp_port:6379\r" and the conf
+    script's check, anchored with a dollar, never matched it. The first
+    build of this component died there, with a server that was up and
+    listening on both families and a message that said no Redis answered.
+    Measured in the chroot of that build:
+
+        redis-cli INFO server | grep tcp_port | od -c
+        t c p _ p o r t : 6 3 7 9 \r \n
+
+    The reply now goes through tr before it is read, in one function both
+    checks call, and the stub in tests/conf.bats answers in CRLF so every
+    test in that file covers it.
+
+  * A failure prints the server's own log. The check removes the directory
+    it runs the server in, so the log that explains a failure went with it
+    and the build that failed could not be diagnosed from its own output.
+    The fatal path now prints the last twenty lines first.
+
+  * The message that failure prints says which address reported nothing and
+    how long the wait was, as two separate facts. The old one read "no Redis
+    answered INFO on [127.0.0.1]:6379 after 30 tries" for a check that had
+    made one attempt, because the tries belong to the wait on [::1].
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Mon, 28 Sep 2026 01:45:00 +0000
+
 unit-redis-1.0.0 (1) keel; urgency=low
 
   * The Redis component, as a fab unit (decision 0010): a plan, an overlay
