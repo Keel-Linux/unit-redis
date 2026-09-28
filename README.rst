@@ -114,19 +114,39 @@ properties an operator can check:
    The password itself exists on the machine only in the file the
    description points at.
 
-Before the first boot the administrative account is published ``off``, which
-cannot authenticate whatever is sent. That is this component's version of
-the invalid password hash ``keel-mariadb`` publishes its account with, and
-the reason is the same: a layer is published once and reused by every
-appliance built on it, so a password chosen at build time would be the same
-password everywhere, and a random one would make the layer irreproducible
-(brief section 5.4).
+Before the first boot **the administrative account does not exist**, and
+that is deliberate rather than an omission. ``keel-mariadb`` publishes its
+account with a password hash no input produces; the same shape was tried
+here, ``user admin off`` at build time and the real rule at first boot, and
+Redis refuses it:
 
-One Redis trap is worth stating on its own, because every check in this
-component is written around it: **redis-cli exits 0 when the server answers
-with an error.** A wrong password prints ``AUTH failed: WRONGPASS ...`` and
-then the command's own refusal, and exits 0. So the hook, the conf script
-and the appliance's boot test all read the answer and never the exit code.
+    Error in user declaration 'admin': Duplicate user found.
+    A user can only be defined once in config files
+
+So the account is declared once, by the first boot, or not at all. The
+property that mattered is the same either way: a layer is published once and
+reused by every appliance built on it, so a password chosen at build time
+would be the same password everywhere, and a random one would make the layer
+irreproducible (brief section 5.4).
+
+Three Redis behaviours are worth stating on their own, because the checks in
+this component are written around them and each one cost a build or a boot.
+
+**redis-cli exits 0 when the server answers with an error.** A wrong password
+prints ``AUTH failed: WRONGPASS ...`` and then the command's own refusal, and
+exits 0. So the hook, the conf script and the appliance's boot test all read
+the answer and never the exit code.
+
+**Redis speaks CRLF.** Every line of an ``INFO`` reply ends ``\r\n`` and
+redis-cli prints the reply as it came, so a grep anchored with ``$`` never
+matches a whole line.
+
+**Redis opens every value its ``logfile`` setting is ever given.** A
+``--logfile`` on the command line does not stop the packaged path being
+created first, so a check that runs the server as root leaves
+``/var/log/redis/redis-server.log`` owned by root in a directory the redis
+user owns, and the service cannot start at all afterwards. The conf script
+takes an empty one away again.
 
 How configuration is added
 --------------------------

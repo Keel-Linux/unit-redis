@@ -12,12 +12,12 @@ repository does not carry a boot test of its own.
 | --- | --- | --- | --- |
 | overlay/usr/lib/inithooks/lib/redis.sh | tests/redis.bats (20 tests) | 100 percent (56/56) under kcov | every function and every branch |
 | overlay/usr/lib/inithooks/firstboot.d/35redispass | tests/hook.bats (18 tests) | 100 percent (31/31) under kcov | every path, including the four failures that matter |
-| conf | tests/conf.bats (17 tests) | 100 percent (39/39) under kcov | the include appended once and last, the fragments, the running server on both families, every refusal, the CRLF an INFO reply really carries, and the server log a failure prints |
+| conf | tests/conf.bats (20 tests) | 100 percent (42/42) under kcov | the include appended once and last, the fragments, the running server on both families, every refusal, the CRLF an INFO reply really carries, the server log a failure prints, and the packaged log file the check must not leave behind |
 | overlay/etc/redis/redis.conf.d/\* | tests/conf.bats (2 tests) | not executable | asserted as content: two literal bind addresses and no name, the default account restricted to `+info`, the administrative account published `off`, and no `requirepass` anywhere |
 | overlay/usr/lib/inithooks/bin/redispass.py | none | 0 | dialog wrapper, only reached with a terminal attached |
 
-Total over the three measured shell files: **100 percent (126/126)**,
-67 bats tests over four files (conf, hook, library, unit shape).
+Total over the three measured shell files: **100 percent (129/129)**,
+70 bats tests over four files (conf, hook, library, unit shape).
 `tests/coverage.sh` fails below `COVERAGE_THRESHOLD`, which the workflow sets
 to 100, the measured number. It is only ever raised (decision 0006).
 
@@ -25,7 +25,7 @@ to 100, the measured number. It is only ever raised (decision 0006).
     kcov line coverage (threshold 100 percent):
      100.00  56/56  redis.sh
      100.00  31/31  35redispass
-     100.00  39/39  conf
+     100.00  42/42  conf
 
 ## What the tests are really about
 

@@ -25,18 +25,29 @@ setup() {
     # Debian's conffile, shortened to the two lines that matter here: a bind
     # the fragment has to win over, and a commented include example that must
     # not be read as the include this script adds.
-    cat > "$REDIS_CONF" <<'CONF'
+    mkdir -p "$scratch/var/log/redis"
+    cat > "$REDIS_CONF" <<CONF
 # include /path/to/local.conf
 bind 127.0.0.1 -::1
 protected-mode yes
 port 6379
+logfile $scratch/var/log/redis/redis-server.log
 CONF
+    PACKAGED_LOG="$scratch/var/log/redis/redis-server.log"
     # what the component overlay delivers
     cp "$ROOT/overlay/etc/redis/redis.conf.d/10-keel-bind.conf" "$REDIS_CONF_D/"
     cp "$ROOT/overlay/etc/redis/redis.conf.d/20-keel-acl.conf" "$REDIS_CONF_D/"
 
+    # The stub opens the packaged log file the way redis does. Redis opens
+    # every value its logfile setting is ever given, so the one in the
+    # configuration file is created even when --logfile names another, and
+    # the check runs as root: that is what left a root owned log in the
+    # first layer that booted, and a service that could not start.
     stub redis-server 'echo "redis-server $*" >> "$CALLS"
+conf=$1
 pidfile=""
+packaged=$(sed -n "s/^logfile[[:space:]][[:space:]]*//p" "$conf" | tail -1)
+[ -n "$packaged" ] && : >> "$packaged"
 while [ $# -gt 0 ]; do
     if [ "$1" = --pidfile ]; then pidfile=$2; fi
     shift
@@ -243,9 +254,46 @@ exit 0'
     ! grep -qE '^bind .*-::1' "$REDIS_CONF_D/10-keel-bind.conf"
 }
 
-@test "the acl fragment publishes an unusable account and a default that may only ask" {
+@test "the acl fragment declares one user, and it is not the administrative one" {
+    # Redis refuses a user declared twice across configuration files, so the
+    # administrative account cannot be published here and turned on later:
+    # it is declared once, at the first boot, or not at all.
     grep -qx 'user default on nopass +info' "$REDIS_CONF_D/20-keel-acl.conf"
-    grep -qx 'user admin off' "$REDIS_CONF_D/20-keel-acl.conf"
+    [ "$(grep -c '^user ' "$REDIS_CONF_D/20-keel-acl.conf")" -eq 1 ]
+    ! grep -qE '^user admin' "$REDIS_CONF_D/20-keel-acl.conf"
     ! grep -qE '^requirepass' "$REDIS_CONF_D/20-keel-acl.conf"
     ! grep -qE '^user default .*\+@all' "$REDIS_CONF_D/20-keel-acl.conf"
+}
+
+@test "no account is declared twice, which Redis refuses outright" {
+    # The failure this pair of tests exists for, measured on a booted
+    # appliance: "Error in user declaration 'admin': Duplicate user found.
+    # A user can only be defined once in config files". The build time
+    # fragment and the one the first boot writes may not name the same
+    # account, and only the first boot names one.
+    source "$ROOT/overlay/usr/lib/inithooks/lib/redis.sh"
+    hash=$(redis_password_hash s3cret)
+    redis_acl_fragment admin "$hash" > "$REDIS_CONF_D/50-keel-secret.conf"
+    run bash -c "cat '$REDIS_CONF_D'/*.conf | grep '^user ' | awk '{print \$2}' | sort | uniq -d"
+    [ -z "$output" ]
+}
+
+@test "the empty packaged log file the check creates is taken away again" {
+    # Redis opens every value its logfile setting is ever given, and the
+    # check runs as root, so the packaged /var/log/redis/redis-server.log
+    # is created owned by root in a directory the redis user owns. The
+    # service then cannot start: "Can't open the log file: Permission
+    # denied", measured on the first layer that booted.
+    run_conf
+    [ "$status" -eq 0 ]
+    grep -q -- "--logfile $REDIS_CHECK_DIR" "$CALLS"
+    [ ! -e "$PACKAGED_LOG" ]
+}
+
+@test "a packaged log file with something in it is left alone" {
+    echo "a line somebody may want" > "$PACKAGED_LOG"
+    run_conf
+    [ "$status" -eq 0 ]
+    [ -s "$PACKAGED_LOG" ]
+    grep -qx "a line somebody may want" "$PACKAGED_LOG"
 }

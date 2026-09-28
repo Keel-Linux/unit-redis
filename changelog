@@ -1,3 +1,39 @@
+unit-redis-1.0.2 (1) keel; urgency=low
+
+  * Declare the administrative account once. 20-keel-acl.conf published it
+    as "user admin off", the way keel-mariadb publishes an account with a
+    password hash no input produces, and firstboot.d/35redispass declared
+    it again with its digest. Redis refuses that outright:
+
+        Error in user declaration 'admin': Duplicate user found.
+        A user can only be defined once in config files
+
+    Measured on the booted appliance of the first layer that got that far,
+    where it left redis-server.service in a restart loop and the first boot
+    hook failing. The build time fragment names no administrative account
+    now, and the first boot names it once. An account that is not declared
+    cannot authenticate either, which was the property that mattered.
+
+  * Take the packaged log file away again when the check created it. Redis
+    opens every value its logfile setting is ever given, so the path in the
+    packaged configuration is created even though the check passes
+    --logfile pointing somewhere else, and the check runs as root:
+
+        redis-server[524]: *** FATAL CONFIG FILE ERROR (Redis 8.0.2) ***
+        redis-server[524]: Can't open the log file: Permission denied
+
+    /var/log/redis/redis-server.log, owned by root, in a directory owned by
+    the redis user, which is a service that cannot start on any machine
+    built from the layer. Measured on the same appliance. The package ships
+    no such file and redis makes its own at the first start, so the check
+    removes an empty one. A log file with something in it is left alone.
+
+  * Both were found by booting the layer, which is what the boot test is
+    for, and neither could have been found by the build: the build's own
+    checks passed, because a build runs everything as root.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Mon, 28 Sep 2026 02:30:00 +0000
+
 unit-redis-1.0.1 (1) keel; urgency=low
 
   * Read an INFO reply the way Redis writes it. Redis speaks CRLF: every
