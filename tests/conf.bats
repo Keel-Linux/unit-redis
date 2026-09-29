@@ -250,8 +250,8 @@ exit 0'
     # The fragment is content, not code, so it is asserted here: this is the
     # one line the PostgreSQL appliance got wrong (docs/traps.md).
     grep -qx 'bind ::1 127.0.0.1' "$REDIS_CONF_D/10-keel-bind.conf"
-    ! grep -qE '^bind .*localhost' "$REDIS_CONF_D/10-keel-bind.conf"
-    ! grep -qE '^bind .*-::1' "$REDIS_CONF_D/10-keel-bind.conf"
+    run ! grep -qE '^bind .*localhost' "$REDIS_CONF_D/10-keel-bind.conf"
+    run ! grep -qE '^bind .*-::1' "$REDIS_CONF_D/10-keel-bind.conf"
 }
 
 @test "the acl fragment declares one user, and it is not the administrative one" {
@@ -260,9 +260,9 @@ exit 0'
     # it is declared once, at the first boot, or not at all.
     grep -qx 'user default on nopass +info' "$REDIS_CONF_D/20-keel-acl.conf"
     [ "$(grep -c '^user ' "$REDIS_CONF_D/20-keel-acl.conf")" -eq 1 ]
-    ! grep -qE '^user admin' "$REDIS_CONF_D/20-keel-acl.conf"
-    ! grep -qE '^requirepass' "$REDIS_CONF_D/20-keel-acl.conf"
-    ! grep -qE '^user default .*\+@all' "$REDIS_CONF_D/20-keel-acl.conf"
+    run ! grep -qE '^user admin' "$REDIS_CONF_D/20-keel-acl.conf"
+    run ! grep -qE '^requirepass' "$REDIS_CONF_D/20-keel-acl.conf"
+    run ! grep -qE '^user default .*\+@all' "$REDIS_CONF_D/20-keel-acl.conf"
 }
 
 @test "no account is declared twice, which Redis refuses outright" {
