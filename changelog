@@ -1,3 +1,16 @@
+unit-redis-1.0.3 (1) keel; urgency=low
+
+  * bin/redispass.py draws its password box on the terminal.
+    firstboot.d/35redispass captures the script's standard output for
+    DB_PASS=, and dialog draws on standard output, so an interactive first
+    boot would freeze at the Redis password with the box drawn into the
+    hook's command substitution, as keel-wordpress 19.0-3 did at the
+    MariaDB password on Proxmox (2026-09-30). The answers now go to a copy
+    of that pipe and standard output is the terminal. tests/dialog.bats
+    runs the script as the hook does, inside a pseudo terminal.
+
+ -- Keel Linux maintainers <admin@keellinux.org>  Wed, 30 Sep 2026 04:30:00 +0000
+
 unit-redis-1.0.2 (1) keel; urgency=low
 
   * Declare the administrative account once. 20-keel-acl.conf published it

@@ -11,6 +11,7 @@ organization's `test-shell.yml` and the check is `tests / coverage`.
 | File | What it covers |
 | --- | --- |
 | `conf.bats` | the build time conf script, run for real against a scratch tree, with `redis-server` and `redis-cli` as PATH stubs. Also the two configuration fragments, asserted as content |
+| `dialog.bats` | `bin/redispass.py` run as the hook runs it, output redirected, inside a pseudo terminal (`script -qec`), with a stand-in for libinithooks whose dialog refuses to draw anywhere but a terminal: the answer goes to the hook and the box to the screen |
 | `hook.bats` | the first boot hook, run for real against a scratch tree, with `systemctl` and `redis-cli` as PATH stubs and a stub dialog on a scratch `INITHOOKS_PATH` whose `lib` is a symlink to the real library, so kcov measures the file the component ships |
 | `redis.bats` | the library behind the hook, function by function |
 | `unit.bats` | the shape fab and `bt-layer` require of a unit: the executable conf, the plan, the version against the changelog, the overlay's exact file list, and the conf script as POSIX shell under shellcheck |
