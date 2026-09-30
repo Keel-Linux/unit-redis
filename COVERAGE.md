@@ -14,10 +14,10 @@ repository does not carry a boot test of its own.
 | overlay/usr/lib/inithooks/firstboot.d/35redispass | tests/hook.bats (18 tests) | 100 percent (31/31) under kcov | every path, including the four failures that matter |
 | conf | tests/conf.bats (20 tests) | 100 percent (42/42) under kcov | the include appended once and last, the fragments, the running server on both families, every refusal, the CRLF an INFO reply really carries, the server log a failure prints, and the packaged log file the check must not leave behind |
 | overlay/etc/redis/redis.conf.d/\* | tests/conf.bats (2 tests) | not executable | asserted as content: two literal bind addresses and no name, the default account restricted to `+info`, the administrative account published `off`, and no `requirepass` anywhere |
-| overlay/usr/lib/inithooks/bin/redispass.py | none | 0 | dialog wrapper, only reached with a terminal attached |
+| overlay/usr/lib/inithooks/bin/redispass.py | tests/dialog.bats (3 tests) | not measured (kcov measures the shell) | dialog wrapper, run as the hook runs it inside a pseudo terminal: the answer reaches the hook and the box is drawn on the terminal |
 
 Total over the three measured shell files: **100 percent (129/129)**,
-70 bats tests over four files (conf, hook, library, unit shape).
+73 bats tests over five files (conf, hook, library, unit shape, dialog).
 `tests/coverage.sh` fails below `COVERAGE_THRESHOLD`, which the workflow sets
 to 100, the measured number. It is only ever raised (decision 0006).
 
