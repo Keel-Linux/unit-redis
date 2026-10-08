@@ -162,3 +162,42 @@ setup() {
     [ "$(redis_masked s3cret)" = "(6 characters)" ]
     [[ "$(redis_masked s3cret)" != *s3cret* ]]
 }
+
+# --------------------------------------------- the fragment as Redis reads it
+
+@test "every line of the rendered fragment is a comment, blank, or a user rule" {
+    local hash line n=0
+    hash=$(printf '%s' secret | sha256sum | cut -d ' ' -f 1)
+    run redis_acl_fragment admin "$hash"
+    [ "$status" -eq 0 ]
+    while IFS= read -r line; do
+        n=$((n + 1))
+        [[ -z "$line" || "$line" == '#'* || "$line" == 'user '* ]] \
+            || { echo "line $n is neither a comment nor a rule: $line"; false; }
+    done <<< "$output"
+    [ "$n" -gt 1 ]
+}
+
+@test "redis-server starts with the shipped ACL file and the rendered fragment" {
+    command -v redis-server >/dev/null || skip "redis-server is not installed"
+    local hash dir="$BATS_TEST_TMPDIR/redis"
+    mkdir -p "$dir"
+    hash=$(printf '%s' secret | sha256sum | cut -d ' ' -f 1)
+    redis_acl_fragment admin "$hash" > "$dir/50-keel-secret.conf"
+    {
+        echo "port 0"
+        echo "unixsocket $dir/redis.sock"
+        echo "dir $dir"
+        echo "daemonize no"
+        echo "logfile \"\""
+        echo "include $BATS_TEST_DIRNAME/../overlay/etc/redis/redis.conf.d/20-keel-acl.conf"
+        echo "include $dir/50-keel-secret.conf"
+    } > "$dir/redis.conf"
+    # a configuration Redis refuses makes it exit at once; one it accepts
+    # keeps it running until the timeout stops it (status 124)
+    run timeout 3 redis-server "$dir/redis.conf"
+    echo "$output"
+    [ "$status" -eq 124 ]
+    [[ "$output" != *"Unresolved Configuration"* ]]
+    [[ "$output" != *"FATAL CONFIG FILE ERROR"* ]]
+}

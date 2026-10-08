@@ -28,6 +28,9 @@ jobs:
     uses: keel-linux/.github/.github/workflows/test-shell.yml@main
     with:
       threshold: 100
+      # tests/redis.bats starts a real redis-server on the rendered ACL
+      # fragment; without it that test would skip and prove nothing here
+      apt-packages: redis-server
   package:
     # Only on a pull request: require-changelog reads the base commit from
     # github.event.pull_request.base.sha, which is empty on a push.
