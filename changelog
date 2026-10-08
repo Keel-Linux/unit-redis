@@ -1,3 +1,16 @@
+unit-redis-1.0.4 (1) keel; urgency=low
+
+  * lib/redis.sh: a line of the comment redis_acl_fragment writes into
+    /etc/redis/redis.conf.d/50-keel-secret.conf had lost its "#", so the
+    first boot wrote a line Redis reads as a directive and redis-server
+    refused to start ("Unresolved Configuration ... aborting"); found by the
+    headless boot of the Redis 19.0-7 image. tests/redis.bats now checks that
+    every line of the rendered fragment is a comment, a blank or a user rule,
+    and starts a real redis-server on the shipped ACL file and the rendered
+    fragment; the workflow installs redis-server for it.
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Thu, 08 Oct 2026 01:41:14 +0000
+
 unit-redis-1.0.3 (1) keel; urgency=low
 
   * bin/redispass.py draws its password box on the terminal.

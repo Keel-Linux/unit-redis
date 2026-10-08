@@ -102,7 +102,7 @@ redis_acl_fragment() {
 # The password is not here and is not anywhere on this machine except the
 # file the description points at.
 #
-This file is the only place the account is declared. Redis refuses a
+# This file is the only place the account is declared. Redis refuses a
 # user declared twice across configuration files, so 20-keel-acl.conf names
 # no administrative account at all and this one names it once. Editing this
 # by hand is how an operator would change the account; the password itself
