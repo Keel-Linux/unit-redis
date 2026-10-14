@@ -22,7 +22,7 @@ done
 report="${COVERAGE_DIR:-$(mktemp -d)}"
 # The include pattern is the whitelist. Each entry ends in a file name, so
 # no directory of the scratch trees the tests build can match it.
-kcov --include-pattern=/unit-redis/conf,/lib/redis.sh,/firstboot.d/35redispass \
+kcov --include-pattern="${here%/tests}/conf,/lib/redis.sh,/firstboot.d/35redispass" \
     "$report" bats "$here"
 
 json="$(find "$report" -mindepth 2 -maxdepth 2 -name coverage.json -not -path "*/kcov-merged/*" | head -1)"
