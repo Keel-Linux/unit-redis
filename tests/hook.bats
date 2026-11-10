@@ -22,7 +22,10 @@ setup() {
     # the library is the real file, not a copy: kcov measures the one the
     # component ships, and a copy per test would be measured as its own
     # uncovered file
-    ln -s "$(cd "$ROOT/overlay/usr/lib/inithooks/lib" && pwd)" "$scratch/inithooks/lib"
+    # (a link to the file, in a directory of the test, so that a test can
+    # put a stand-in for lib/console.sh of inithooks beside it)
+    mkdir -p "$scratch/inithooks/lib"
+    ln -s "$(cd "$ROOT/overlay/usr/lib/inithooks/lib" && pwd)/redis.sh" "$scratch/inithooks/lib/redis.sh"
 
     export INITHOOKS_DEFAULT="$scratch/default-inithooks"
     export INITHOOKS_CONF="$scratch/inithooks.conf"
@@ -247,4 +250,80 @@ esac'
     chmod 700 "$scratch/redis.conf.d/nested"
     [ "$status" -ne 0 ]
     [ ! -f "$CALLS" ] || ! grep -q systemctl "$CALLS"
+}
+
+# with_console [deferred]: a stand-in for lib/console.sh of inithooks, as
+# the hook sees it. console_unattended reads INITHOOKS_UNATTENDED, which
+# run of inithooks exports when nobody can answer the console. Without
+# "deferred", it is an inithooks older than 2.3.6+keel35, which has
+# console_skipped only.
+with_console() {
+    export INITHOOKS_DEFERRED="$scratch/deferred"
+    cat > "$scratch/inithooks/lib/console.sh" <<'CONSOLE'
+console_unattended() { [[ "${INITHOOKS_UNATTENDED:-no}" != "no" ]]; }
+console_skipped() { echo "INFO: [$1] not asked, nobody can answer ($INITHOOKS_UNATTENDED): $2"; }
+CONSOLE
+    if [ "${1:-}" = deferred ]; then
+        cat >> "$scratch/inithooks/lib/console.sh" <<'CONSOLE'
+console_deferred() { console_skipped "$1" "$2"; printf '%s\n' "$1" >> "$INITHOOKS_DEFERRED"; }
+CONSOLE
+    fi
+}
+
+@test "nobody can answer and nothing declared: keel-init asks it, the first boot goes on" {
+    # The headless first boot of a container that pct create made (the
+    # commissioning test of keel-redis, lxc-interactive): the hook failed,
+    # and the inithooks log got "ERR: [35redispass] failed"
+    with_console deferred
+    printf 'export HOSTNAME=cache\n' > "$INITHOOKS_CONF"
+    INITHOOKS_UNATTENDED="the console has no size, nobody is attached to it" run "$HOOK" < /dev/null
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[35redispass] not asked"* ]]
+    [[ "$output" == *"keel-init asks it"* ]]
+    [ "$(cat "$INITHOOKS_DEFERRED")" = 35redispass ]
+    [ ! -f "$CALLS" ]
+    [ -z "$(ls -A "$REDIS_CONF_D")" ]
+}
+
+@test "nobody can answer, and inithooks has console_skipped only: the hook skips, and does not fail" {
+    with_console
+    printf 'export HOSTNAME=cache\n' > "$INITHOOKS_CONF"
+    INITHOOKS_UNATTENDED="there is no terminal" run "$HOOK" < /dev/null
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"[35redispass] not asked"* ]]
+    [ ! -e "$INITHOOKS_DEFERRED" ]
+    [ ! -f "$CALLS" ]
+}
+
+@test "nobody can answer, but the password is declared: it is set as always" {
+    with_console deferred
+    write_conf
+    INITHOOKS_UNATTENDED="there is no terminal" run "$HOOK" < /dev/null
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"set from DB_PASS"* ]]
+    [ ! -e "$INITHOOKS_DEFERRED" ]
+}
+
+@test "somebody can answer: the dialog is asked, not deferred" {
+    with_console deferred
+    printf 'export HOSTNAME=cache\n' > "$INITHOOKS_CONF"
+    command -v script >/dev/null || skip "util-linux script is not installed"
+    INITHOOKS_UNATTENDED=no run script -qec "$HOOK" /dev/null
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"set from DB_PASS"* ]]
+    [ ! -e "$INITHOOKS_DEFERRED" ]
+}
+
+@test "nobody can answer, although standard input is a terminal: no dialog is drawn" {
+    # inithooks.service gives the hooks tty1 as standard input, and on a
+    # container nobody is attached to it: [[ -t 0 ]] is true there, and the
+    # dialog of libinithooks refuses to draw when INITHOOKS_UNATTENDED is set
+    with_console deferred
+    printf 'export HOSTNAME=cache\n' > "$INITHOOKS_CONF"
+    command -v script >/dev/null || skip "util-linux script is not installed"
+    printf '#!/bin/sh\necho "the dialog was drawn" >&2\nexit 1\n' > "$scratch/inithooks/bin/redispass.py"
+    INITHOOKS_UNATTENDED="the console has no size, nobody is attached to it" run script -qec "$HOOK" /dev/null
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"the dialog was drawn"* ]]
+    [ "$(cat "$INITHOOKS_DEFERRED")" = 35redispass ]
 }

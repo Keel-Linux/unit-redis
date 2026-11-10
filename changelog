@@ -1,3 +1,20 @@
+unit-redis-1.0.5 (1) keel; urgency=low
+
+  * firstboot.d/35redispass leaves its question to keel-init when nobody
+    can answer the console (console_unattended of inithooks' lib/console.sh)
+    and no DB_PASS is declared. It records the hook with console_deferred,
+    so the first login starts keel-init, or with console_skipped on an
+    inithooks that has no console_deferred, and exits 0. Before, the
+    headless first boot of a container that pct create made failed the
+    hook: standard input is tty1 there, so the hook called the dialog, the
+    dialog refused to draw, and the inithooks log got "ERR: [35redispass]
+    failed". The commissioning contract of keel-redis (lxc-interactive)
+    fails on that line. A declared DB_PASS is set as before, and an
+    inithooks without lib/console.sh keeps the old behaviour. The pattern
+    is 35pgsqlpass of common and 35mysqlpass of keel-mariadb (#40).
+
+ -- KeelLinux maintainers <admin@keellinux.org>  Tue, 10 Nov 2026 14:30:00 +0000
+
 unit-redis-1.0.4 (1) keel; urgency=low
 
   * lib/redis.sh: a line of the comment redis_acl_fragment writes into

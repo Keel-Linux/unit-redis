@@ -6,25 +6,25 @@ component is the layer that consumes it: `keel-redis` builds it, boots it in
 LXC and proves the declared secret reaches the server, which is why this
 repository does not carry a boot test of its own.
 
-## Measured 2026-09-28
+## Measured 2026-11-10
 
 | File | Test | Lines | Note |
 | --- | --- | --- | --- |
 | overlay/usr/lib/inithooks/lib/redis.sh | tests/redis.bats (20 tests) | 100 percent (56/56) under kcov | every function and every branch |
-| overlay/usr/lib/inithooks/firstboot.d/35redispass | tests/hook.bats (18 tests) | 100 percent (31/31) under kcov | every path, including the four failures that matter |
+| overlay/usr/lib/inithooks/firstboot.d/35redispass | tests/hook.bats (23 tests) | 100 percent (39/39) under kcov | every path, including the four failures that matter, and the question left to keel-init when nobody can answer the console |
 | conf | tests/conf.bats (20 tests) | 100 percent (42/42) under kcov | the include appended once and last, the fragments, the running server on both families, every refusal, the CRLF an INFO reply really carries, the server log a failure prints, and the packaged log file the check must not leave behind |
 | overlay/etc/redis/redis.conf.d/\* | tests/conf.bats (2 tests) | not executable | asserted as content: two literal bind addresses and no name, the default account restricted to `+info`, the administrative account published `off`, and no `requirepass` anywhere |
 | overlay/usr/lib/inithooks/bin/redispass.py | tests/dialog.bats (3 tests) | not measured (kcov measures the shell) | dialog wrapper, run as the hook runs it inside a pseudo terminal: the answer reaches the hook and the box is drawn on the terminal |
 
-Total over the three measured shell files: **100 percent (129/129)**,
-73 bats tests over five files (conf, hook, library, unit shape, dialog).
+Total over the three measured shell files: **100 percent (137/137)**,
+80 bats tests over five files (conf, hook, library, unit shape, dialog).
 `tests/coverage.sh` fails below `COVERAGE_THRESHOLD`, which the workflow sets
 to 100, the measured number. It is only ever raised (decision 0006).
 
     $ COVERAGE_THRESHOLD=100 tests/coverage.sh
     kcov line coverage (threshold 100 percent):
      100.00  56/56  redis.sh
-     100.00  31/31  35redispass
+     100.00  39/39  35redispass
      100.00  42/42  conf
 
 ## What the tests are really about
