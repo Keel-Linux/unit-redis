@@ -34,6 +34,13 @@ INITHOOKS_DEFAULT="${INITHOOKS_DEFAULT:-/etc/default/inithooks}"
 source "$INITHOOKS_DEFAULT"
 # shellcheck source=../lib/redis.sh
 source "$INITHOOKS_PATH/lib/redis.sh"
+# lib/console.sh of inithooks says whether anybody can answer the console
+# (console_unattended). An inithooks without it has none of this, and the
+# hook then asks on a terminal or fails, as before.
+if [[ -e "$INITHOOKS_PATH/lib/console.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$INITHOOKS_PATH/lib/console.sh"
+fi
 
 fatal() { echo "fatal [35redispass]: $*" >&2; exit 1; }
 
@@ -47,6 +54,24 @@ user=$(redis_admin_user "${APP_DB_USER-}") \
 
 mapfile -t missing < <(redis_missing_values "${DB_PASS-}")
 if [[ ${#missing[@]} -gt 0 ]]; then
+    # Nobody can answer the console: the headless first boot of a container
+    # that pct create made, where standard input is tty1 and nobody is
+    # attached to it. The dialog would refuse to draw and the hook would
+    # fail. So the question goes to keel-init. console_deferred also puts
+    # the hook in the record that keeps the fence up, so that the first
+    # login starts keel-init; an inithooks older than 2.3.6+keel35 has
+    # console_skipped only. The account stays undeclared, so it cannot
+    # authenticate until keel-init sets it.
+    if declare -F console_unattended >/dev/null && console_unattended; then
+        skip=console_skipped
+        if declare -F console_deferred >/dev/null; then
+            skip=console_deferred
+        fi
+        "$skip" 35redispass "no ${missing[*]} in $INITHOOKS_CONF: the Redis \
+account '$user' stays unable to authenticate; declare \
+secrets.db_password in the instance description, or keel-init asks it"
+        exit 0
+    fi
     [[ -t 0 ]] || fatal "no ${missing[*]} in $INITHOOKS_CONF and no terminal to" \
         "ask on: declare secrets.db_password in the instance description"
     # The answer is collected first and read afterwards, rather than read
